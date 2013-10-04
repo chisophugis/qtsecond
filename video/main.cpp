@@ -51,6 +51,8 @@ public:
     MatrixUniform = Program->uniformLocation("matrix");
   }
   void render() override {
+    glViewport(0, 0, width(), height());
+
     glClearColor(0.0f, 1.0f, 1.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
