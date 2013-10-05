@@ -219,11 +219,8 @@ int main(int argc, char *argv[]) {
   }
   YUV4MPEG2 Y4M{RawFile, (size_t)F.size()};
 
-  QSurfaceFormat Format;
-  Format.setSamples(4);
   TriangleWindow W{Y4M};
-  W.setFormat(Format);
-  W.resize(640, 480);
+  W.resize(Y4M.Width, Y4M.Height);
   W.show();
   W.setAnimating(true);
 
