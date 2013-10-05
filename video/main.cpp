@@ -122,8 +122,8 @@ public:
     MatrixUniform = Program->uniformLocation("matrix");
     SamplerUniformLocation = Program->uniformLocation("uSampler");
 
-    glGenTextures(1, &ImageTexture);
-    glBindTexture(GL_TEXTURE_2D, ImageTexture);
+    glGenTextures(1, &LumaTexture);
+    glBindTexture(GL_TEXTURE_2D, LumaTexture);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   }
@@ -135,13 +135,13 @@ public:
 
     Program->bind();
 
-    glBindTexture(GL_TEXTURE_2D, ImageTexture);
+    glBindTexture(GL_TEXTURE_2D, LumaTexture);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, Y4M.Width, Y4M.Height, 0,
                  GL_LUMINANCE, GL_UNSIGNED_BYTE,
                  Y4M.Frames[FrameNum % Y4M.Frames.size()].Y);
 
     glActiveTexture(GL_TEXTURE0 + 0);
-    glBindTexture(GL_TEXTURE_2D, ImageTexture);
+    glBindTexture(GL_TEXTURE_2D, LumaTexture);
     glUniform1i(SamplerUniformLocation, 0);
 
     QMatrix4x4 M;
@@ -185,7 +185,7 @@ public:
     ++FrameNum;
   }
   ~TriangleWindow() {
-    glDeleteTextures(1, &ImageTexture);
+    glDeleteTextures(1, &LumaTexture);
   }
 
 private:
@@ -197,7 +197,7 @@ private:
   GLuint TexCoordAttr;
   GLuint MatrixUniform;
   GLuint SamplerUniformLocation;
-  GLuint ImageTexture;
+  GLuint LumaTexture;
 
   QOpenGLShaderProgram *Program = nullptr;
   int FrameNum = 0;
