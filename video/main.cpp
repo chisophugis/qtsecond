@@ -204,23 +204,6 @@ private:
   const YUV4MPEG2 &Y4M;
 };
 
-template <typename T, typename... Args>
-std::unique_ptr<T> make_unique(Args &&... args) {
-  return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
-}
-
-std::unique_ptr<QImage> createImageFromMonochromeBytes(const uchar *Bytes,
-                                                       int W, int H) {
-  auto Ret = make_unique<QImage>(QSize{W, H}, QImage::Format_RGB888);
-  uchar *RGBBuf = Ret->bits();
-  for (int i = 0, e = W * H; i != e; ++i) {
-    RGBBuf[3 * i] = Bytes[i];
-    RGBBuf[3 * i + 1] = Bytes[i];
-    RGBBuf[3 * i + 2] = Bytes[i];
-  }
-  return Ret;
-}
-
 int main(int argc, char *argv[]) {
   QApplication A(argc, argv);
 
@@ -235,11 +218,6 @@ int main(int argc, char *argv[]) {
     return 1;
   }
   YUV4MPEG2 Y4M{RawFile, (size_t)F.size()};
-  const uchar *FirstFrameLuma = skipToAfterNewline(skipToAfterNewline(RawFile));
-  auto Image = createImageFromMonochromeBytes(FirstFrameLuma, 352, 288);
-  QLabel L;
-  L.setPixmap(QPixmap::fromImage(*Image));
-  L.show();
 
   QSurfaceFormat Format;
   Format.setSamples(4);
