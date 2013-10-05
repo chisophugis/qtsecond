@@ -22,6 +22,18 @@ void main() {
 }
 )";
 
+template <typename T> T *typedNullptr() { return static_cast<T *>(nullptr); }
+
+template <typename MemberTy, typename StructTy>
+GLvoid *offsetOfAsPtr(MemberTy StructTy::*MemberPtr) {
+  return std::addressof(typedNullptr<StructTy>()->*MemberPtr);
+}
+
+struct Vertex {
+  GLfloat XY[2];
+  GLfloat RGB[3];
+};
+
 class TriangleWindow : public OpenGLWindow {
 public:
   TriangleWindow() = default;
@@ -36,6 +48,14 @@ public:
       ++TopVertexLeftRight;
     else if (K == Qt::Key_H)
       --TopVertexLeftRight;
+    else if (K == Qt::Key_Left)
+      ++LeftRight;
+    else if (K == Qt::Key_Right)
+      --LeftRight;
+    else if (K == Qt::Key_Up)
+      ++UpDown;
+    else if (K == Qt::Key_Down)
+      --UpDown;
     render();
   }
 
@@ -59,37 +79,49 @@ public:
     Program->bind();
 
     QMatrix4x4 M;
-    M.setToIdentity();
+    //M.ortho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
+    //M.perspective(60, static_cast<qreal>(width()) / height(), 0.1, 100.0);
+    M.translate(0, UpDown, LeftRight);
+
+    //M.translate(0, 0, -2);
+    //M.rotate(100.0f * FrameNum / screen()->refreshRate(), 0, 1, 0);
 
     Program->setUniformValue(MatrixUniform, M);
 
-    GLfloat Vertices[] = {                                         //
-      0.707f * TopVertexLeftRight, 0.707f * (TopVertexUpDown + 1), //
-      -0.5f, -0.5f,                                                //
-      0.5f, -0.5f                                                  //
-    };
-    GLfloat Colors[] = { //
-      1.0f, 0.0f, 0.0f,  //
-      0.0f, 1.0f, 0.0f,  //
-      0.0f, 0.0f, 1.0f   //
+    Vertex Vertices[] = {                         //
+      { { -1.0f, -1.0f }, { 1.0f, 0.0f, 0.0f } }, //
+      { { -1.0f, 1.0f }, { 0.0f, 1.0f, 0.0f } },  //
+      { { 1.0f, -1.0f }, { 0.0f, 0.0f, 1.0f } },  //
+      { { 1.0f, 1.0f }, { 0.0f, 0.0f, 0.0f } },   //
     };
 
-    glVertexAttribPointer(PosAttr, 2, GL_FLOAT, GL_FALSE, 0, Vertices);
-    glVertexAttribPointer(ColAttr, 3, GL_FLOAT, GL_FALSE, 0, Colors);
+    GLuint VBOID;
+    glGenBuffers(1, &VBOID);
+    glBindBuffer(GL_ARRAY_BUFFER, VBOID);
 
-    glEnableVertexAttribArray(0);
-    glEnableVertexAttribArray(1);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(Vertices), &Vertices, GL_STATIC_DRAW);
+    glVertexAttribPointer(PosAttr, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                          offsetOfAsPtr(&Vertex::XY));
+    glVertexAttribPointer(ColAttr, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                          offsetOfAsPtr(&Vertex::RGB));
 
-    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glEnableVertexAttribArray(PosAttr);
+    glEnableVertexAttribArray(ColAttr);
 
-    glEnableVertexAttribArray(1);
-    glEnableVertexAttribArray(0);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    glDisableVertexAttribArray(ColAttr);
+    glDisableVertexAttribArray(PosAttr);
+
+    glDeleteBuffers(1, &VBOID);
 
     Program->release();
     ++FrameNum;
   }
 
 private:
+  int UpDown = 0;
+  int LeftRight = 0;
   int TopVertexUpDown = 0;
   int TopVertexLeftRight = 0;
   GLuint PosAttr;
