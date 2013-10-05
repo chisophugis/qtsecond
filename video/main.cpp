@@ -140,7 +140,8 @@ public:
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, Y4M.Width, Y4M.Height, 0,
-                 GL_LUMINANCE, GL_UNSIGNED_BYTE, Y4M.Frames[0].Y);
+                 GL_LUMINANCE, GL_UNSIGNED_BYTE,
+                 Y4M.Frames[FrameNum % Y4M.Frames.size()].Y);
 
     glActiveTexture(GL_TEXTURE0 + 0);
     glBindTexture(GL_TEXTURE_2D, ImageTexture);
