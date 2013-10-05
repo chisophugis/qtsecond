@@ -11,132 +11,7 @@
 #include <memory>
 #include <vector>
 
-const char VertexShaderSource[] = R"(
-attribute highp vec4 posAttr;
-attribute lowp vec4 colAttr;
-varying lowp vec4 col;
-uniform highp mat4 matrix;
-void main() {
-   col = colAttr;
-   gl_Position = matrix * posAttr;
-}
-)";
-const char FragmentShaderSource[] = R"(
-varying lowp vec4 col;
-void main() {
-   gl_FragColor = col;
-}
-)";
-
-template <typename T> T *typedNullptr() { return static_cast<T *>(nullptr); }
-
-template <typename MemberTy, typename StructTy>
-GLvoid *offsetOfAsPtr(MemberTy StructTy::*MemberPtr) {
-  return std::addressof(typedNullptr<StructTy>()->*MemberPtr);
-}
-
-struct Vertex {
-  GLfloat XY[2];
-  GLfloat RGB[3];
-};
-
-class TriangleWindow : public OpenGLWindow {
-public:
-  TriangleWindow() = default;
-
-  void keyPressEvent(QKeyEvent *E) override {
-    int K = E->key();
-    if (K == Qt::Key_K)
-      ++TopVertexUpDown;
-    else if (K == Qt::Key_J)
-      --TopVertexUpDown;
-    else if (K == Qt::Key_L)
-      ++TopVertexLeftRight;
-    else if (K == Qt::Key_H)
-      --TopVertexLeftRight;
-    else if (K == Qt::Key_Left)
-      ++LeftRight;
-    else if (K == Qt::Key_Right)
-      --LeftRight;
-    else if (K == Qt::Key_Up)
-      ++UpDown;
-    else if (K == Qt::Key_Down)
-      --UpDown;
-    render();
-  }
-
-  void initialize() override {
-    // initializeGLFunctions();
-    Program = new QOpenGLShaderProgram(this);
-    Program->addShaderFromSourceCode(QOpenGLShader::Vertex, VertexShaderSource);
-    Program->addShaderFromSourceCode(QOpenGLShader::Fragment,
-                                     FragmentShaderSource);
-    Program->link();
-    PosAttr = Program->attributeLocation("posAttr");
-    ColAttr = Program->attributeLocation("colAttr");
-    MatrixUniform = Program->uniformLocation("matrix");
-  }
-  void render() override {
-    glViewport(0, 0, width(), height());
-
-    glClearColor(0.0f, 1.0f, 1.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    Program->bind();
-
-    QMatrix4x4 M;
-    // M.ortho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
-    // M.perspective(60, static_cast<qreal>(width()) / height(), 0.1, 100.0);
-    M.translate(0, UpDown, LeftRight);
-
-    // M.translate(0, 0, -2);
-    // M.rotate(100.0f * FrameNum / screen()->refreshRate(), 0, 1, 0);
-
-    Program->setUniformValue(MatrixUniform, M);
-
-    Vertex Vertices[] = {                     //
-        {{-1.0f, -1.0f}, {1.0f, 0.0f, 0.0f}}, //
-        {{-1.0f, 1.0f}, {0.0f, 1.0f, 0.0f}},  //
-        {{1.0f, -1.0f}, {0.0f, 0.0f, 1.0f}},  //
-        {{1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}},   //
-    };
-
-    GLuint VBOID;
-    glGenBuffers(1, &VBOID);
-    glBindBuffer(GL_ARRAY_BUFFER, VBOID);
-
-    glBufferData(GL_ARRAY_BUFFER, sizeof(Vertices), &Vertices, GL_STATIC_DRAW);
-    glVertexAttribPointer(PosAttr, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                          offsetOfAsPtr(&Vertex::XY));
-    glVertexAttribPointer(ColAttr, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                          offsetOfAsPtr(&Vertex::RGB));
-
-    glEnableVertexAttribArray(PosAttr);
-    glEnableVertexAttribArray(ColAttr);
-
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-    glDisableVertexAttribArray(ColAttr);
-    glDisableVertexAttribArray(PosAttr);
-
-    glDeleteBuffers(1, &VBOID);
-
-    Program->release();
-    ++FrameNum;
-  }
-
-private:
-  int UpDown = 0;
-  int LeftRight = 0;
-  int TopVertexUpDown = 0;
-  int TopVertexLeftRight = 0;
-  GLuint PosAttr;
-  GLuint ColAttr;
-  GLuint MatrixUniform;
-
-  QOpenGLShaderProgram *Program = nullptr;
-  int FrameNum = 0;
-};
+// YUV4MPEG2 Stuff.
 
 static const uchar *skipToAfterNewline(const uchar *P) {
   while (*P != '\n')
@@ -173,6 +48,159 @@ public:
   std::vector<Frame> Frames;
   int Width = 352;
   int Height = 288;
+};
+
+// GL Stuff.
+
+const char VertexShaderSource[] = R"(
+attribute highp vec4 posAttr;
+attribute highp vec2 texCoordAttr;
+varying highp vec2 texCoordVarying;
+uniform highp mat4 matrix;
+void main() {
+   texCoordVarying = texCoordAttr;
+   gl_Position = matrix * posAttr;
+}
+)";
+const char FragmentShaderSource[] = R"(
+varying highp vec2 texCoordVarying;
+uniform sampler2D uSampler;
+void main() {
+  gl_FragColor =
+      texture2D(uSampler, vec2(texCoordVarying.s, texCoordVarying.t));
+}
+)";
+
+template <typename T>
+T *typedNullptr() {
+  return static_cast<T *>(nullptr);
+}
+
+template <typename MemberTy, typename StructTy>
+GLvoid *offsetOfAsPtr(MemberTy StructTy::*MemberPtr) {
+  return std::addressof(typedNullptr<StructTy>()->*MemberPtr);
+}
+
+struct Vertex {
+  GLfloat XY[2];
+  GLfloat ST[2];
+};
+
+class TriangleWindow : public OpenGLWindow {
+public:
+  TriangleWindow(YUV4MPEG2 &Y4M_) : Y4M(Y4M_) {}
+
+  void keyPressEvent(QKeyEvent *E) override {
+    int K = E->key();
+    if (K == Qt::Key_K)
+      ++TopVertexUpDown;
+    else if (K == Qt::Key_J)
+      --TopVertexUpDown;
+    else if (K == Qt::Key_L)
+      ++TopVertexLeftRight;
+    else if (K == Qt::Key_H)
+      --TopVertexLeftRight;
+    else if (K == Qt::Key_Left)
+      ++LeftRight;
+    else if (K == Qt::Key_Right)
+      --LeftRight;
+    else if (K == Qt::Key_Up)
+      ++UpDown;
+    else if (K == Qt::Key_Down)
+      --UpDown;
+    render();
+  }
+
+  void initialize() override {
+    // initializeGLFunctions();
+    Program = new QOpenGLShaderProgram(this);
+    Program->addShaderFromSourceCode(QOpenGLShader::Vertex, VertexShaderSource);
+    Program->addShaderFromSourceCode(QOpenGLShader::Fragment,
+                                     FragmentShaderSource);
+    Program->link();
+    PosAttr = Program->attributeLocation("posAttr");
+    TexCoordAttr = Program->attributeLocation("texCoordAttr");
+    MatrixUniform = Program->uniformLocation("matrix");
+    SamplerUniformLocation = Program->uniformLocation("uSampler");
+  }
+  void render() override {
+    glViewport(0, 0, width(), height());
+
+    glClearColor(0.0f, 1.0f, 1.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    Program->bind();
+
+    GLuint ImageTexture;
+    glGenTextures(1, &ImageTexture);
+    // Way below (need to make RAII wrapper once I've figured all this out):
+    // glDeleteTextures(1, &ImageTexture);
+
+    glBindTexture(GL_TEXTURE_2D, ImageTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, Y4M.Width, Y4M.Height, 0,
+                 GL_LUMINANCE, GL_UNSIGNED_BYTE, Y4M.Frames[0].Y);
+
+    glActiveTexture(GL_TEXTURE0 + 0);
+    glBindTexture(GL_TEXTURE_2D, ImageTexture);
+    glUniform1i(SamplerUniformLocation, 0);
+
+    QMatrix4x4 M;
+    // M.ortho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
+    // M.perspective(60, static_cast<qreal>(width()) / height(), 0.1, 100.0);
+    M.translate(0, UpDown, LeftRight);
+
+    // M.translate(0, 0, -2);
+    // M.rotate(100.0f * FrameNum / screen()->refreshRate(), 0, 1, 0);
+
+    Program->setUniformValue(MatrixUniform, M);
+
+    Vertex Vertices[] = {               //
+        {{-1.0f, -1.0f}, {0.0f, 0.0f}}, //
+        {{-1.0f, 1.0f}, {0.0f, 1.0f}},  //
+        {{1.0f, -1.0f}, {1.0f, 0.0f}},  //
+        {{1.0f, 1.0f}, {1.0f, 1.0f}},   //
+    };
+
+    GLuint VBOID;
+    glGenBuffers(1, &VBOID);
+    glBindBuffer(GL_ARRAY_BUFFER, VBOID);
+
+    glBufferData(GL_ARRAY_BUFFER, sizeof(Vertices), &Vertices, GL_STATIC_DRAW);
+    glVertexAttribPointer(PosAttr, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                          offsetOfAsPtr(&Vertex::XY));
+    glVertexAttribPointer(TexCoordAttr, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                          offsetOfAsPtr(&Vertex::ST));
+
+    glEnableVertexAttribArray(PosAttr);
+    glEnableVertexAttribArray(TexCoordAttr);
+
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    glDisableVertexAttribArray(TexCoordAttr);
+    glDisableVertexAttribArray(PosAttr);
+
+    glDeleteBuffers(1, &VBOID);
+    glDeleteTextures(1, &ImageTexture);
+
+    Program->release();
+    ++FrameNum;
+  }
+
+private:
+  int UpDown = 0;
+  int LeftRight = 0;
+  int TopVertexUpDown = 0;
+  int TopVertexLeftRight = 0;
+  GLuint PosAttr;
+  GLuint TexCoordAttr;
+  GLuint MatrixUniform;
+  GLuint SamplerUniformLocation;
+
+  QOpenGLShaderProgram *Program = nullptr;
+  int FrameNum = 0;
+  const YUV4MPEG2 &Y4M;
 };
 
 template <typename T, typename... Args>
@@ -214,7 +242,7 @@ int main(int argc, char *argv[]) {
 
   QSurfaceFormat Format;
   Format.setSamples(4);
-  TriangleWindow W;
+  TriangleWindow W{Y4M};
   W.setFormat(Format);
   W.resize(640, 480);
   W.show();
