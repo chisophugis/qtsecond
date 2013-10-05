@@ -121,6 +121,11 @@ public:
     TexCoordAttr = Program->attributeLocation("texCoordAttr");
     MatrixUniform = Program->uniformLocation("matrix");
     SamplerUniformLocation = Program->uniformLocation("uSampler");
+
+    glGenTextures(1, &ImageTexture);
+    glBindTexture(GL_TEXTURE_2D, ImageTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   }
   void render() override {
     glViewport(0, 0, width(), height());
@@ -130,14 +135,7 @@ public:
 
     Program->bind();
 
-    GLuint ImageTexture;
-    glGenTextures(1, &ImageTexture);
-    // Way below (need to make RAII wrapper once I've figured all this out):
-    // glDeleteTextures(1, &ImageTexture);
-
     glBindTexture(GL_TEXTURE_2D, ImageTexture);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, Y4M.Width, Y4M.Height, 0,
                  GL_LUMINANCE, GL_UNSIGNED_BYTE,
                  Y4M.Frames[FrameNum % Y4M.Frames.size()].Y);
@@ -182,10 +180,12 @@ public:
     glDisableVertexAttribArray(PosAttr);
 
     glDeleteBuffers(1, &VBOID);
-    glDeleteTextures(1, &ImageTexture);
 
     Program->release();
     ++FrameNum;
+  }
+  ~TriangleWindow() {
+    glDeleteTextures(1, &ImageTexture);
   }
 
 private:
@@ -197,6 +197,7 @@ private:
   GLuint TexCoordAttr;
   GLuint MatrixUniform;
   GLuint SamplerUniformLocation;
+  GLuint ImageTexture;
 
   QOpenGLShaderProgram *Program = nullptr;
   int FrameNum = 0;
