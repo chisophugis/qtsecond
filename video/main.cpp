@@ -58,8 +58,8 @@ attribute highp vec2 texCoordAttr;
 varying highp vec2 texCoordVarying;
 uniform highp mat4 matrix;
 void main() {
-   texCoordVarying = texCoordAttr;
-   gl_Position = matrix * posAttr;
+  texCoordVarying = texCoordAttr;
+  gl_Position = matrix * posAttr;
 }
 )";
 const char FragmentShaderSource[] = R"(
