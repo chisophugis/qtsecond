@@ -66,8 +66,7 @@ const char FragmentShaderSource[] = R"(
 varying highp vec2 texCoordVarying;
 uniform sampler2D uSampler;
 void main() {
-  gl_FragColor =
-      texture2D(uSampler, vec2(texCoordVarying.s, texCoordVarying.t));
+  gl_FragColor = texture2D(uSampler, texCoordVarying.st);
 }
 )";
 
