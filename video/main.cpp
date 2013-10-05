@@ -64,9 +64,23 @@ void main() {
 )";
 const char FragmentShaderSource[] = R"(
 varying highp vec2 texCoordVarying;
-uniform sampler2D uSampler;
+uniform sampler2D YSampler;
+uniform sampler2D CbSampler;
+uniform sampler2D CrSampler;
 void main() {
-  gl_FragColor = texture2D(uSampler, texCoordVarying.st);
+  float Y = texture2D(YSampler, texCoordVarying.st).r;
+  float Cb = texture2D(CbSampler, texCoordVarying.st).r;
+  float Cr = texture2D(CrSampler, texCoordVarying.st).r;
+  // <http://www.equasys.de/colorconversion.html>
+  // YUV4MPEG2 uses BT.601 with full-range [0,255] (i.e., no
+  // headroom/footroom).
+  // NOTE: The vectors passed in here are column-vectors, which are the
+  // columns of the matrix, even though the physical arrangement of the
+  // matrix entries in the source suggests that they are the rows.
+  mat3 Conv = mat3(vec3(1.0, 1.0, 1.0),      //
+                   vec3(0.0, -0.343, 1.765), //
+                   vec3(1.4, -0.711, 0.0));
+  gl_FragColor = vec4(Conv * vec3(Y, Cb - 0.5, Cr - 0.5), 1.0);
 }
 )";
 
@@ -120,12 +134,21 @@ public:
     PosAttr = Program->attributeLocation("posAttr");
     TexCoordAttr = Program->attributeLocation("texCoordAttr");
     MatrixUniform = Program->uniformLocation("matrix");
-    SamplerUniformLocation = Program->uniformLocation("uSampler");
+    YSamplerUniformLocation = Program->uniformLocation("YSampler");
+    CbSamplerUniformLocation = Program->uniformLocation("CbSampler");
+    CrSamplerUniformLocation = Program->uniformLocation("CrSampler");
 
-    glGenTextures(1, &LumaTexture);
-    glBindTexture(GL_TEXTURE_2D, LumaTexture);
+    LumaTexture = createSimpleTexture();
+    CbTexture = createSimpleTexture();
+    CrTexture = createSimpleTexture();
+  }
+  GLuint createSimpleTexture() {
+    GLuint Ret;
+    glGenTextures(1, &Ret);
+    glBindTexture(GL_TEXTURE_2D, Ret);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    return Ret;
   }
   void render() override {
     glViewport(0, 0, width(), height());
@@ -135,14 +158,30 @@ public:
 
     Program->bind();
 
+    // TODO: Abstract this.
+
+    const YUV4MPEG2::Frame &Frame = Y4M.Frames[FrameNum % Y4M.Frames.size()];
     glBindTexture(GL_TEXTURE_2D, LumaTexture);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, Y4M.Width, Y4M.Height, 0,
-                 GL_LUMINANCE, GL_UNSIGNED_BYTE,
-                 Y4M.Frames[FrameNum % Y4M.Frames.size()].Y);
+                 GL_LUMINANCE, GL_UNSIGNED_BYTE, Frame.Y);
+    // XXX: Hardcoded division by 2 for 4:2:0. Breaks encapsulation of
+    // YUV4MPEG2 class.
+    glBindTexture(GL_TEXTURE_2D, CbTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, Y4M.Width / 2, Y4M.Height / 2,
+                 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, Frame.Cb);
+    glBindTexture(GL_TEXTURE_2D, CrTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, Y4M.Width / 2, Y4M.Height / 2,
+                 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, Frame.Cr);
 
     glActiveTexture(GL_TEXTURE0 + 0);
     glBindTexture(GL_TEXTURE_2D, LumaTexture);
-    glUniform1i(SamplerUniformLocation, 0);
+    glUniform1i(YSamplerUniformLocation, 0);
+    glActiveTexture(GL_TEXTURE0 + 1);
+    glBindTexture(GL_TEXTURE_2D, CbTexture);
+    glUniform1i(CbSamplerUniformLocation, 1);
+    glActiveTexture(GL_TEXTURE0 + 2);
+    glBindTexture(GL_TEXTURE_2D, CrTexture);
+    glUniform1i(CrSamplerUniformLocation, 2);
 
     QMatrix4x4 M;
     // M.ortho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
@@ -186,6 +225,8 @@ public:
   }
   ~TriangleWindow() {
     glDeleteTextures(1, &LumaTexture);
+    glDeleteTextures(1, &CbTexture);
+    glDeleteTextures(1, &CrTexture);
   }
 
 private:
@@ -196,8 +237,12 @@ private:
   GLuint PosAttr;
   GLuint TexCoordAttr;
   GLuint MatrixUniform;
-  GLuint SamplerUniformLocation;
+  GLuint YSamplerUniformLocation;
+  GLuint CbSamplerUniformLocation;
+  GLuint CrSamplerUniformLocation;
   GLuint LumaTexture;
+  GLuint CbTexture;
+  GLuint CrTexture;
 
   QOpenGLShaderProgram *Program = nullptr;
   int FrameNum = 0;
