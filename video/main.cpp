@@ -159,6 +159,7 @@ public:
     Program->bind();
 
     // TODO: Abstract this.
+    // For starters, see `od_img_plane` and `od_img` in the daala source.
 
     const YUV4MPEG2::Frame &Frame = Y4M.Frames[FrameNum % Y4M.Frames.size()];
     glBindTexture(GL_TEXTURE_2D, LumaTexture);
