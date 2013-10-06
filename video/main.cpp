@@ -185,8 +185,35 @@ public:
 
     QMatrix4x4 M;
     // M.ortho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
-    // M.perspective(60, static_cast<qreal>(width()) / height(), 0.1, 100.0);
-    M.translate(0, UpDown, LeftRight);
+    // M.translate(0, UpDown, LeftRight);
+    M.perspective(60, static_cast<qreal>(width()) / height(), 0.1, 10.0);
+    M.translate(0, 0, -2);
+    M.rotate(300.0 * FrameNum / screen()->refreshRate(), 0, 0, 1);
+
+    //M.translate(0, UpDown, LeftRight);
+
+    // This is the identity matrix:
+    // M.ortho(-1.0, 1.0, -1.0, 1.0, 1.0, -1.0);
+    // qDebug() << M;
+    // qApp->quit();
+    // The reason it is the identity is that OpenGL only rasterizes the
+    // "projection space", which by definition is [-1,1]x[-1,1]x[-1,1], but
+    // where the +z axis is coming towards you. The rasterization basically
+    // sends rays orthogonal to the x-y plane, and starting at z=+1 ending
+    // at z=-1 (everything else is clipped).
+    // You can think of all of these matrix operations as just putting
+    // things inside that box while transforming them so that when
+    // rasterized they look how you want.
+    // Perspective transformations effectively map a view frustrum onto the
+    // projection space, which is a nonlinear transformation in 3D
+    // Cartesian coordinates.
+    // That's where the fourth "w" coordinate comes in; there is a fourth
+    // coordinate which yields so-called "homogeneous coordinates", where
+    // notionally <x,y,z,w> represents <x/w,y/w,z/w>. It turns out that
+    // linearly interpolating in these homogeneous coordinates does what
+    // you want if you make the w coordinate proportional to z (i.e.,
+    // things are "scaled down" if they are farther away, since w becomes
+    // larger).
 
     // M.translate(0, 0, -2);
     // M.rotate(100.0f * FrameNum / screen()->refreshRate(), 0, 1, 0);
