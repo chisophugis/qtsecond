@@ -280,7 +280,7 @@ private:
 int main(int argc, char *argv[]) {
   QApplication A(argc, argv);
 
-  QFile F("/home/sean/tmp/foreman_cif.y4m");
+  QFile F("/home/sean/videos/foreman_cif.y4m");
   if (!F.open(QIODevice::ReadOnly)) {
     qDebug() << "Unable to open file";
     return 1;
