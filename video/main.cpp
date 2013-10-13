@@ -158,6 +158,10 @@ public:
 
     Program->bind();
 
+    // GLint MRS;
+    // glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &MRS);
+    // qDebug() << MRS; // 8192 on my computer.
+
     // TODO: Abstract this.
     // For starters, see `od_img_plane` and `od_img` in the daala source.
 
