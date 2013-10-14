@@ -30,6 +30,7 @@ private:
   bool UpdatePending;
   bool IsAnimating;
 
+  bool CalledSubclassInitialize;
   QOpenGLContext *Context;
 };
 

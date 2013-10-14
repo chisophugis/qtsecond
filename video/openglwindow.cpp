@@ -2,8 +2,15 @@
 #include <QCoreApplication>
 
 OpenGLWindow::OpenGLWindow(QWindow *Parent)
-    : QWindow(Parent), UpdatePending(false), IsAnimating(false), Context(0) {
+    : QWindow(Parent), UpdatePending(false), IsAnimating(false),
+      CalledSubclassInitialize(false), Context(0) {
   setSurfaceType(QWindow::OpenGLSurface);
+  create();
+  Context = new QOpenGLContext(this);
+  Context->setFormat(requestedFormat());
+  Context->create();
+  Context->makeCurrent(this);
+  initializeOpenGLFunctions();
 }
 
 OpenGLWindow::~OpenGLWindow() {}
@@ -47,18 +54,11 @@ void OpenGLWindow::renderNow() {
   if (!isExposed())
     return;
   UpdatePending = false;
-  bool NeedsInitialize = false;
-  if (!Context) {
-    Context = new QOpenGLContext(this);
-    Context->setFormat(requestedFormat());
-    Context->create();
-    NeedsInitialize = true;
-  }
 
   Context->makeCurrent(this);
-
-  if (NeedsInitialize) {
-    initializeOpenGLFunctions();
+  if (!CalledSubclassInitialize) {
+    CalledSubclassInitialize = true;
+    // Can't call this from the constructor since it is virtual!
     initialize(); // For the subclass.
   }
 

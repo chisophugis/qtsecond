@@ -99,6 +99,71 @@ struct Vertex {
   GLfloat ST[2];
 };
 
+// The default constructor of QOpenGLFunctions doesn't initialize with the
+// current context. Instead, you have to pass a null pointer to the
+// one-argument constructor (actually, this doesn't seem to be working, so
+// hack around it by explicitly getting the current context). This class
+// basically just avoids boilerplate in subclasses.
+class OpenGLFunctions : protected QOpenGLFunctions {
+public:
+  OpenGLFunctions() : QOpenGLFunctions(QOpenGLContext::currentContext()) {}
+};
+
+class OpenGLFramebuffer : protected OpenGLFunctions {
+  GLuint Name;
+
+public:
+  OpenGLFramebuffer() { glGenFramebuffers(1, &Name); }
+  ~OpenGLFramebuffer() { glDeleteFramebuffers(1, &Name); }
+  GLuint getName() { return Name; }
+};
+
+// QOpenGLFunctions doesn't have any texture-related functions.
+//
+// The docs say "QOpenGLFunctions provides wrappers for all OpenGL/ES 2.0
+// functions, except those like glDrawArrays(), glViewport(), and
+// glBindTexture() that don't have portability issues."
+// <http://qt-project.org/doc/qt-5.0/qtgui/qopenglfunctions.html>
+class OpenGLTexture : protected OpenGLFunctions {
+  GLuint Name;
+
+public:
+  OpenGLTexture() {
+    glGenTextures(1, &Name);
+    glBindTexture(GL_TEXTURE_2D, Name);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  }
+  ~OpenGLTexture() { glDeleteTextures(1, &Name); }
+  GLuint getName() { return Name; }
+};
+
+class YUVToRGBConverter : protected QOpenGLFunctions {
+  // We convert YUV->RGB into this framebuffer.
+  OpenGLFramebuffer RGBConvertedFramebuffer;
+  OpenGLTexture RGBTexture;
+
+public:
+  void convertFrame(const YUV4MPEG2 &Y4M, int FrameNum) {
+    glBindFramebuffer(GL_FRAMEBUFFER, RGBConvertedFramebuffer.getName());
+
+    glBindTexture(GL_TEXTURE_2D, RGBTexture.getName());
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, Y4M.Width, Y4M.Height, 0, GL_RGB,
+                 GL_UNSIGNED_BYTE, nullptr);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           RGBTexture.getName(), 0);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+      qDebug() << "Framebuffer not complete!";
+    }
+    glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    // TODO: Actually do the YUV->RGB conversion.
+  }
+  GLuint getRGBTextureName() { return RGBTexture.getName(); }
+};
+
 class TriangleWindow : public OpenGLWindow {
 public:
   TriangleWindow(YUV4MPEG2 &Y4M_) : Y4M(Y4M_) {}
@@ -153,6 +218,7 @@ public:
     return Ret;
   }
   void render() override {
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, width(), height());
 
     glClearColor(0.0f, 1.0f, 1.0f, 1.0f);
@@ -193,9 +259,10 @@ public:
     QMatrix4x4 M;
     // M.ortho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
     // M.translate(0, UpDown, LeftRight);
-    M.perspective(60, static_cast<qreal>(width()) / height(), 0.1, 10.0);
-    M.translate(0, 0, -2);
-    M.rotate(300.0 * FrameNum / screen()->refreshRate(), 0, 0, 1);
+    //
+    // M.perspective(60, static_cast<qreal>(width()) / height(), 0.1, 10.0);
+    // M.translate(0, 0, -2);
+    // M.rotate(300.0 * FrameNum / screen()->refreshRate(), 0, 0, 1);
 
     //M.translate(0, UpDown, LeftRight);
 
@@ -278,6 +345,8 @@ private:
   GLuint CbTexture;
   GLuint CrTexture;
 
+
+  YUVToRGBConverter Converter;
   QOpenGLShaderProgram *Program = nullptr;
   int FrameNum = 0;
   const YUV4MPEG2 &Y4M;
