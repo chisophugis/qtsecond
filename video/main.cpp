@@ -64,23 +64,9 @@ void main() {
 )";
 const char FragmentShaderSource[] = R"(
 varying highp vec2 texCoordVarying;
-uniform sampler2D YSampler;
-uniform sampler2D CbSampler;
-uniform sampler2D CrSampler;
+uniform sampler2D RGBTexture;
 void main() {
-  float Y = texture2D(YSampler, texCoordVarying.st).r;
-  float Cb = texture2D(CbSampler, texCoordVarying.st).r;
-  float Cr = texture2D(CrSampler, texCoordVarying.st).r;
-  // <http://www.equasys.de/colorconversion.html>
-  // YUV4MPEG2 uses BT.601 with full-range [0,255] (i.e., no
-  // headroom/footroom).
-  // NOTE: The vectors passed in here are column-vectors, which are the
-  // columns of the matrix, even though the physical arrangement of the
-  // matrix entries in the source suggests that they are the rows.
-  mat3 Conv = mat3(vec3(1.0, 1.0, 1.0),      //
-                   vec3(0.0, -0.343, 1.765), //
-                   vec3(1.4, -0.711, 0.0));
-  gl_FragColor = vec4(Conv * vec3(Y, Cb - 0.5, Cr - 0.5), 1.0);
+  gl_FragColor = texture2D(RGBTexture, texCoordVarying.st);
 }
 )";
 
@@ -118,6 +104,15 @@ public:
   GLuint getName() { return Name; }
 };
 
+class OpenGLBuffer : protected OpenGLFunctions {
+  GLuint Name;
+
+public:
+  OpenGLBuffer() { glGenBuffers(1, &Name); }
+  ~OpenGLBuffer() { glDeleteBuffers(1, &Name); }
+  GLuint getName() { return Name; }
+};
+
 // QOpenGLFunctions doesn't have any texture-related functions.
 //
 // The docs say "QOpenGLFunctions provides wrappers for all OpenGL/ES 2.0
@@ -140,13 +135,50 @@ public:
   GLuint getName() { return Name; }
 };
 
-class YUVToRGBConverter : protected QOpenGLFunctions {
+class YUVToRGBConverter : protected OpenGLFunctions {
   // We convert YUV->RGB into this framebuffer.
   OpenGLFramebuffer RGBConvertedFramebuffer;
   OpenGLTexture RGBTexture;
 
+  // These are the inputs to the conversion process.
+  OpenGLTexture LumaTexture;
+  OpenGLTexture CbTexture;
+  OpenGLTexture CrTexture;
+
+  OpenGLBuffer ViewFillingSquareVertexBuffer;
+
+  // TODO: I really need to find a better way to do this. Embedding the
+  // shaders as string literals is just not doing it for me.
+  QOpenGLShaderProgram Program;
+  static const char VertexShaderSource[];
+  static const char FragmentShaderSource[];
+
+  YUVToRGBConverter(YUVToRGBConverter &) = delete;
+
 public:
-  void convertFrame(const YUV4MPEG2 &Y4M, int FrameNum) {
+  YUVToRGBConverter() {
+    Program.addShaderFromSourceCode(QOpenGLShader::Vertex, VertexShaderSource);
+    Program.addShaderFromSourceCode(QOpenGLShader::Fragment,
+                                    FragmentShaderSource);
+    Program.link();
+
+    // TODO: Investigate Vertex Array Objects, which encapsulate enabling
+    // these vertex attributes and such.
+
+    // Notice that these texture coordinates have their Y-axis flipped
+    // w.r.t. the vertex coordinates. That is because the image data itself
+    // is arranged in memory starting at the top-left, while OpenGL
+    // interprets textures in memory as starting at the bottom-left.
+    Vertex Vertices[] = {               //
+        {{-1.0f, -1.0f}, {0.0f, 1.0f}}, //
+        {{-1.0f, 1.0f}, {0.0f, 0.0f}},  //
+        {{1.0f, -1.0f}, {1.0f, 1.0f}},  //
+        {{1.0f, 1.0f}, {1.0f, 0.0f}},   //
+    };
+    glBindBuffer(GL_ARRAY_BUFFER, ViewFillingSquareVertexBuffer.getName());
+    glBufferData(GL_ARRAY_BUFFER, sizeof(Vertices), &Vertices, GL_STATIC_DRAW);
+  }
+  void convertFrame(const YUV4MPEG2 &Y4M, int WhichFrame) {
     glBindFramebuffer(GL_FRAMEBUFFER, RGBConvertedFramebuffer.getName());
 
     glBindTexture(GL_TEXTURE_2D, RGBTexture.getName());
@@ -159,10 +191,92 @@ public:
     }
     glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
-    // TODO: Actually do the YUV->RGB conversion.
+
+    // TODO: Abstract this.
+    // For starters, see `od_img_plane` and `od_img` in the daala source.
+    // Especially I like how it handles "decimation".
+    const YUV4MPEG2::Frame &Frame = Y4M.Frames[WhichFrame];
+    glBindTexture(GL_TEXTURE_2D, LumaTexture.getName());
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, Y4M.Width, Y4M.Height, 0,
+                 GL_LUMINANCE, GL_UNSIGNED_BYTE, Frame.Y);
+    // XXX: Hardcoded division by 2 for 4:2:0. Breaks encapsulation of
+    // YUV4MPEG2 class.
+    glBindTexture(GL_TEXTURE_2D, CbTexture.getName());
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, Y4M.Width / 2, Y4M.Height / 2,
+                 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, Frame.Cb);
+    glBindTexture(GL_TEXTURE_2D, CrTexture.getName());
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, Y4M.Width / 2, Y4M.Height / 2,
+                 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, Frame.Cr);
+
+    // TODO: write an alternative version of this with the "nice" API
+    // provided by QOpenGLShaderProgram, e.g.
+    // setAttributeBuffer(const char * name, .....)
+    // setUniformValue(const char * name, .....)
+
+    Program.bind();
+
+    GLuint YSamplerUniformLocation = Program.uniformLocation("YSampler");
+    GLuint CbSamplerUniformLocation = Program.uniformLocation("CbSampler");
+    GLuint CrSamplerUniformLocation = Program.uniformLocation("CrSampler");
+    glActiveTexture(GL_TEXTURE0 + 0);
+    glBindTexture(GL_TEXTURE_2D, LumaTexture.getName());
+    glUniform1i(YSamplerUniformLocation, 0);
+    glActiveTexture(GL_TEXTURE0 + 1);
+    glBindTexture(GL_TEXTURE_2D, CbTexture.getName());
+    glUniform1i(CbSamplerUniformLocation, 1);
+    glActiveTexture(GL_TEXTURE0 + 2);
+    glBindTexture(GL_TEXTURE_2D, CrTexture.getName());
+    glUniform1i(CrSamplerUniformLocation, 2);
+
+    glBindBuffer(GL_ARRAY_BUFFER, ViewFillingSquareVertexBuffer.getName());
+    GLuint PositionAttributeLocation = Program.attributeLocation("Position");
+    GLuint TexCoordAttributeLocation = Program.attributeLocation("TexCoord");
+    glVertexAttribPointer(PositionAttributeLocation, 2, GL_FLOAT, GL_FALSE,
+                          sizeof(Vertex), offsetOfAsPtr(&Vertex::XY));
+    glVertexAttribPointer(TexCoordAttributeLocation, 2, GL_FLOAT, GL_FALSE,
+                          sizeof(Vertex), offsetOfAsPtr(&Vertex::ST));
+
+    glEnableVertexAttribArray(PositionAttributeLocation);
+    glEnableVertexAttribArray(TexCoordAttributeLocation);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glDisableVertexAttribArray(TexCoordAttributeLocation);
+    glDisableVertexAttribArray(PositionAttributeLocation);
+
+    Program.release();
   }
   GLuint getRGBTextureName() { return RGBTexture.getName(); }
 };
+
+const char YUVToRGBConverter::VertexShaderSource[] = R"(
+attribute highp vec4 Position;
+attribute highp vec2 TexCoord;
+varying highp vec2 vTexCoord;
+void main() {
+  vTexCoord = TexCoord;
+  gl_Position = Position;
+}
+)";
+const char YUVToRGBConverter::FragmentShaderSource[] = R"(
+varying highp vec2 vTexCoord;
+uniform sampler2D YSampler;
+uniform sampler2D CbSampler;
+uniform sampler2D CrSampler;
+void main() {
+  float Y = texture2D(YSampler, vTexCoord.st).r;
+  float Cb = texture2D(CbSampler, vTexCoord.st).r;
+  float Cr = texture2D(CrSampler, vTexCoord.st).r;
+  // <http://www.equasys.de/colorconversion.html>
+  // YUV4MPEG2 uses BT.601 with full-range [0,255] (i.e., no
+  // headroom/footroom).
+  // NOTE: The vectors passed in here are column-vectors, which are the
+  // columns of the matrix, even though the physical arrangement of the
+  // matrix entries in the source suggests that they are the rows.
+  mat3 Conv = mat3(vec3(1.0, 1.0, 1.0),      //
+                   vec3(0.0, -0.343, 1.765), //
+                   vec3(1.4, -0.711, 0.0));
+  gl_FragColor = vec4(Conv * vec3(Y, Cb - 0.5, Cr - 0.5), 1.0);
+}
+)";
 
 class TriangleWindow : public OpenGLWindow {
 public:
@@ -196,16 +310,6 @@ public:
     Program->addShaderFromSourceCode(QOpenGLShader::Fragment,
                                      FragmentShaderSource);
     Program->link();
-    PosAttr = Program->attributeLocation("posAttr");
-    TexCoordAttr = Program->attributeLocation("texCoordAttr");
-    MatrixUniform = Program->uniformLocation("matrix");
-    YSamplerUniformLocation = Program->uniformLocation("YSampler");
-    CbSamplerUniformLocation = Program->uniformLocation("CbSampler");
-    CrSamplerUniformLocation = Program->uniformLocation("CrSampler");
-
-    LumaTexture = createSimpleTexture();
-    CbTexture = createSimpleTexture();
-    CrTexture = createSimpleTexture();
   }
   GLuint createSimpleTexture() {
     GLuint Ret;
@@ -218,6 +322,7 @@ public:
     return Ret;
   }
   void render() override {
+    Converter.convertFrame(Y4M, FrameNum % Y4M.Frames.size());
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, width(), height());
 
@@ -230,41 +335,19 @@ public:
     // glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &MRS);
     // qDebug() << MRS; // 8192 on my computer.
 
-    // TODO: Abstract this.
-    // For starters, see `od_img_plane` and `od_img` in the daala source.
-
-    const YUV4MPEG2::Frame &Frame = Y4M.Frames[FrameNum % Y4M.Frames.size()];
-    glBindTexture(GL_TEXTURE_2D, LumaTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, Y4M.Width, Y4M.Height, 0,
-                 GL_LUMINANCE, GL_UNSIGNED_BYTE, Frame.Y);
-    // XXX: Hardcoded division by 2 for 4:2:0. Breaks encapsulation of
-    // YUV4MPEG2 class.
-    glBindTexture(GL_TEXTURE_2D, CbTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, Y4M.Width / 2, Y4M.Height / 2,
-                 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, Frame.Cb);
-    glBindTexture(GL_TEXTURE_2D, CrTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, Y4M.Width / 2, Y4M.Height / 2,
-                 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, Frame.Cr);
-
     glActiveTexture(GL_TEXTURE0 + 0);
-    glBindTexture(GL_TEXTURE_2D, LumaTexture);
-    glUniform1i(YSamplerUniformLocation, 0);
-    glActiveTexture(GL_TEXTURE0 + 1);
-    glBindTexture(GL_TEXTURE_2D, CbTexture);
-    glUniform1i(CbSamplerUniformLocation, 1);
-    glActiveTexture(GL_TEXTURE0 + 2);
-    glBindTexture(GL_TEXTURE_2D, CrTexture);
-    glUniform1i(CrSamplerUniformLocation, 2);
+    glBindTexture(GL_TEXTURE_2D, Converter.getRGBTextureName());
+    Program->setUniformValue("RGBTexture", 0);
 
     QMatrix4x4 M;
     // M.ortho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
     // M.translate(0, UpDown, LeftRight);
     //
-    // M.perspective(60, static_cast<qreal>(width()) / height(), 0.1, 10.0);
-    // M.translate(0, 0, -2);
+    M.perspective(60, static_cast<qreal>(width()) / height(), 0.1, 10.0);
+    M.translate(0, 0, -2);
     // M.rotate(300.0 * FrameNum / screen()->refreshRate(), 0, 0, 1);
 
-    //M.translate(0, UpDown, LeftRight);
+    // M.translate(0, UpDown, LeftRight);
 
     // This is the identity matrix:
     // M.ortho(-1.0, 1.0, -1.0, 1.0, 1.0, -1.0);
@@ -292,19 +375,21 @@ public:
     // M.translate(0, 0, -2);
     // M.rotate(100.0f * FrameNum / screen()->refreshRate(), 0, 1, 0);
 
-    Program->setUniformValue(MatrixUniform, M);
+    Program->setUniformValue("matrix", M);
 
     Vertex Vertices[] = {               //
-        {{-1.0f, -1.0f}, {0.0f, 1.0f}}, //
-        {{-1.0f, 1.0f}, {0.0f, 0.0f}},  //
-        {{1.0f, -1.0f}, {1.0f, 1.0f}},  //
-        {{1.0f, 1.0f}, {1.0f, 0.0f}},   //
+        {{-1.0f, -1.0f}, {0.0f, 0.0f}}, // Bottom left.
+        {{-1.0f, 1.0f}, {0.0f, 1.0f}},  // Top left.
+        {{1.0f, -1.0f}, {1.0f, 0.0f}},  // Bottom right.
+        {{1.0f, 1.0f}, {1.0f, 1.0f}},   // Top right.
     };
 
     GLuint VBOID;
     glGenBuffers(1, &VBOID);
     glBindBuffer(GL_ARRAY_BUFFER, VBOID);
 
+    GLuint PosAttr = Program->attributeLocation("posAttr");
+    GLuint TexCoordAttr = Program->attributeLocation("texCoordAttr");
     glBufferData(GL_ARRAY_BUFFER, sizeof(Vertices), &Vertices, GL_STATIC_DRAW);
     glVertexAttribPointer(PosAttr, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
                           offsetOfAsPtr(&Vertex::XY));
@@ -324,11 +409,6 @@ public:
     Program->release();
     ++FrameNum;
   }
-  ~TriangleWindow() {
-    glDeleteTextures(1, &LumaTexture);
-    glDeleteTextures(1, &CbTexture);
-    glDeleteTextures(1, &CrTexture);
-  }
 
 private:
   int UpDown = 0;
@@ -338,13 +418,6 @@ private:
   GLuint PosAttr;
   GLuint TexCoordAttr;
   GLuint MatrixUniform;
-  GLuint YSamplerUniformLocation;
-  GLuint CbSamplerUniformLocation;
-  GLuint CrSamplerUniformLocation;
-  GLuint LumaTexture;
-  GLuint CbTexture;
-  GLuint CrTexture;
-
 
   YUVToRGBConverter Converter;
   QOpenGLShaderProgram *Program = nullptr;
