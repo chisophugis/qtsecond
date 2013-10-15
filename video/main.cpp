@@ -428,6 +428,7 @@ private:
 int main(int argc, char *argv[]) {
   QApplication A(argc, argv);
 
+  // Can be downloaded from: <http://media.xiph.org/video/derf/>
   static const char FOREMAN_CIF_PATH[] = "/home/sean/videos/foreman_cif.y4m";
   QFile F(FOREMAN_CIF_PATH);
   if (!F.open(QIODevice::ReadOnly))
