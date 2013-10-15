@@ -418,9 +418,6 @@ private:
   int LeftRight = 0;
   int TopVertexUpDown = 0;
   int TopVertexLeftRight = 0;
-  GLuint PosAttr;
-  GLuint TexCoordAttr;
-  GLuint MatrixUniform;
 
   YUVToRGBConverter Converter;
   QOpenGLShaderProgram *Program = nullptr;
