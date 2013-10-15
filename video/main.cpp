@@ -164,6 +164,9 @@ public:
 
     // TODO: Investigate Vertex Array Objects, which encapsulate enabling
     // these vertex attributes and such.
+    // Requires:
+    // OpenGL ES 3.0, or OES_vertex_array_object
+    // Desktop OpenGL 3.0 (ARB_vertex_array_object)
 
     // Notice that these texture coordinates have their Y-axis flipped
     // w.r.t. the vertex coordinates. That is because the image data itself
