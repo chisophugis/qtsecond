@@ -428,16 +428,13 @@ private:
 int main(int argc, char *argv[]) {
   QApplication A(argc, argv);
 
-  QFile F("/home/sean/videos/foreman_cif.y4m");
-  if (!F.open(QIODevice::ReadOnly)) {
-    qDebug() << "Unable to open file";
-    return 1;
-  }
+  static const char FOREMAN_CIF_PATH[] = "/home/sean/videos/foreman_cif.y4m";
+  QFile F(FOREMAN_CIF_PATH);
+  if (!F.open(QIODevice::ReadOnly))
+    qFatal("Unable to open file: '%s'", FOREMAN_CIF_PATH);
   const uchar *RawFile = F.map(0, F.size());
-  if (!RawFile) {
-    qDebug() << "Unable to map file";
-    return 1;
-  }
+  if (!RawFile)
+    qFatal("Unable to map file: '%s'", FOREMAN_CIF_PATH);
   YUV4MPEG2 Y4M{RawFile, (size_t)F.size()};
 
   TriangleWindow W{Y4M};
